@@ -1,0 +1,17 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "UE: Generate Project Files",
+      "type": "shell",
+      "command": "\"${env:UE57_ROOT}\\Engine\\Build\\BatchFiles\\GenerateProjectFiles.bat\" -Project=\"${workspaceFolder}\\NyghtshadeHollow_Core.uproject\" -Game -Engine",
+      "problemMatcher": []
+    },
+    {
+      "label": "UE: Build Editor (Development)",
+      "type": "shell",
+      "command": "\"${env:UE57_ROOT}\\Engine\\Build\\BatchFiles\\Build.bat\" NyghtshadeHollow_CoreEditor Win64 Development -Project=\"${workspaceFolder}\\NyghtshadeHollow_Core.uproject\" -WaitMutex -FromMsBuild",
+      "problemMatcher": []
+    }
+  ]
+}
