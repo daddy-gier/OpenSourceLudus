@@ -321,6 +321,525 @@ def unreal_task_templates() -> List[TaskTemplate]:
                 """
             ).strip(),
         ),
+        TaskTemplate(
+            name="foreman-pack-ue57",
+            engine="unreal",
+            summary="Foreman Pack scripts + integration shims for Nyghtshade on UE 5.7.",
+            checklist=[
+                "Add Bridge folders under Source/Nyghtshade/Private and Public.",
+                "Create optional Crown renderer and IntegratedDynamics shims with __has_include guards.",
+                "Update Nyghtshade.Build.cs to set WITH_CROWN and WITH_INTEGRATED_DYNAMICS defines.",
+                "Add PowerShell automation scripts for audit, clean, copy, and safe build.",
+                "Add Unreal Python import script for FBX/PNG + material setup.",
+                "Write README with exact commands to run on Windows + UE 5.7.",
+            ],
+            copilot_prompt=UNREAL_PROMPT
+            + "\n\nTask: Generate a Foreman Pack for Nyghtshade (Windows + UE 5.7) with scripts, shims, and README.",
+            code_skeleton=dedent(
+                """
+                File: Source/Nyghtshade/Public/Bridge/CrownRenderShim.h
+                ```cpp
+                #pragma once
+
+                #include "CoreMinimal.h"
+
+                #ifndef WITH_CROWN
+                #define WITH_CROWN 0
+                #endif
+
+                namespace Nyghtshade
+                {
+                    class FCrownRenderShim
+                    {
+                    public:
+                        static bool IsAvailable();
+                        static void InitializeCrownRenderer();
+                        static void RenderPrisonPass();
+                    };
+                }
+                ```
+
+                File: Source/Nyghtshade/Private/Bridge/CrownRenderShim.cpp
+                ```cpp
+                #include "Bridge/CrownRenderShim.h"
+
+                #if WITH_CROWN && __has_include("../../../../crown-master/Source/Crown/Public/CrownRenderer.h")
+                #include "../../../../crown-master/Source/Crown/Public/CrownRenderer.h"
+                #define WITH_CROWN_RUNTIME 1
+                #else
+                #define WITH_CROWN_RUNTIME 0
+                #endif
+
+                namespace Nyghtshade
+                {
+                    bool FCrownRenderShim::IsAvailable()
+                    {
+                        return WITH_CROWN_RUNTIME != 0;
+                    }
+
+                    void FCrownRenderShim::InitializeCrownRenderer()
+                    {
+                    #if WITH_CROWN_RUNTIME
+                        Crown::Initialize();
+                    #endif
+                    }
+
+                    void FCrownRenderShim::RenderPrisonPass()
+                    {
+                    #if WITH_CROWN_RUNTIME
+                        Crown::RenderPrisonPass();
+                    #endif
+                    }
+                }
+                ```
+
+                File: Source/Nyghtshade/Public/Bridge/IntegratedDynamicsDataShim.h
+                ```cpp
+                #pragma once
+
+                #include "CoreMinimal.h"
+
+                #ifndef WITH_INTEGRATED_DYNAMICS
+                #define WITH_INTEGRATED_DYNAMICS 0
+                #endif
+
+                namespace Nyghtshade
+                {
+                    class FIntegratedDynamicsDataShim
+                    {
+                    public:
+                        static bool IsAvailable();
+                        static bool LoadPrisonDataset(const FString& DatasetPath);
+                        static bool SavePrisonDataset(const FString& DatasetPath);
+                    };
+                }
+                ```
+
+                File: Source/Nyghtshade/Private/Bridge/IntegratedDynamicsDataShim.cpp
+                ```cpp
+                #include "Bridge/IntegratedDynamicsDataShim.h"
+
+                #if WITH_INTEGRATED_DYNAMICS && __has_include("../../../../IntegratedDynamics/Source/IntegratedDynamics/Public/IntegratedDynamicsAPI.h")
+                #include "../../../../IntegratedDynamics/Source/IntegratedDynamics/Public/IntegratedDynamicsAPI.h"
+                #define WITH_INTEGRATED_DYNAMICS_RUNTIME 1
+                #else
+                #define WITH_INTEGRATED_DYNAMICS_RUNTIME 0
+                #endif
+
+                namespace Nyghtshade
+                {
+                    bool FIntegratedDynamicsDataShim::IsAvailable()
+                    {
+                        return WITH_INTEGRATED_DYNAMICS_RUNTIME != 0;
+                    }
+
+                    bool FIntegratedDynamicsDataShim::LoadPrisonDataset(const FString& DatasetPath)
+                    {
+                    #if WITH_INTEGRATED_DYNAMICS_RUNTIME
+                        return IntegratedDynamics::LoadPrisonDataset(TCHAR_TO_UTF8(*DatasetPath));
+                    #else
+                        return false;
+                    #endif
+                    }
+
+                    bool FIntegratedDynamicsDataShim::SavePrisonDataset(const FString& DatasetPath)
+                    {
+                    #if WITH_INTEGRATED_DYNAMICS_RUNTIME
+                        return IntegratedDynamics::SavePrisonDataset(TCHAR_TO_UTF8(*DatasetPath));
+                    #else
+                        return false;
+                    #endif
+                    }
+                }
+                ```
+
+                File: Source/Nyghtshade/Nyghtshade.Build.cs (additions)
+                ```csharp
+                using System.IO;
+
+                public class Nyghtshade : ModuleRules
+                {
+                    public Nyghtshade(ReadOnlyTargetRules Target) : base(Target)
+                    {
+                        string ProjectRoot = Path.GetFullPath(Path.Combine(ModuleDirectory, "..", ".."));
+                        string CrownRoot = Path.GetFullPath(Path.Combine(ProjectRoot, "..", "crown-master", "Source"));
+                        string IntegratedDynamicsRoot = Path.GetFullPath(Path.Combine(ProjectRoot, "..", "IntegratedDynamics", "Source"));
+
+                        bool HasCrown = Directory.Exists(CrownRoot);
+                        bool HasIntegratedDynamics = Directory.Exists(IntegratedDynamicsRoot);
+
+                        PublicDefinitions.Add($"WITH_CROWN={(HasCrown ? 1 : 0)}");
+                        PublicDefinitions.Add($"WITH_INTEGRATED_DYNAMICS={(HasIntegratedDynamics ? 1 : 0)}");
+                    }
+                }
+                ```
+
+                File: Tools/nh_foreman_audit.ps1
+                ```powershell
+                param(
+                  [Parameter(Mandatory=$true)]
+                  [string]$WorkspaceRoot
+                )
+
+                $ErrorActionPreference = "Stop"
+
+                function Get-ProjectScore {
+                  param([string]$ProjectPath)
+                  $score = 0
+                  $projName = [IO.Path]::GetFileNameWithoutExtension($ProjectPath)
+                  $projDir = Split-Path -Parent $ProjectPath
+                  if ($projName -match "Nyghtshade") { $score += 40 }
+                  if ($projDir -match "Nyghtshade") { $score += 10 }
+                  if (Test-Path (Join-Path $projDir "Source\\Nyghtshade")) { $score += 25 }
+                  if (Test-Path (Join-Path $projDir "Config\\DefaultGame.ini")) { $score += 5 }
+                  if (Test-Path (Join-Path $projDir "Content\\PrisonCore")) { $score += 5 }
+                  if (Test-Path (Join-Path $projDir "Plugins")) { $score += 5 }
+                  return $score
+                }
+
+                $projects = Get-ChildItem -Path $WorkspaceRoot -Recurse -Filter *.uproject -File -ErrorAction SilentlyContinue
+                if (-not $projects) {
+                  Write-Host "No Unreal projects found in $WorkspaceRoot." -ForegroundColor Yellow
+                  exit 1
+                }
+
+                $scored = $projects | ForEach-Object {
+                  [pscustomobject]@{
+                    Path = $_.FullName
+                    Score = Get-ProjectScore $_.FullName
+                  }
+                } | Sort-Object Score -Descending, Path
+
+                $selected = $scored | Select-Object -First 1
+                Write-Host "Selected Nyghtshade project:" -ForegroundColor Cyan
+                Write-Host $selected.Path
+                Write-Host ""
+                Write-Host "All candidates:" -ForegroundColor Cyan
+                $scored | Format-Table -AutoSize
+                ```
+
+                File: Tools/nh_clean_project.ps1
+                ```powershell
+                param(
+                  [Parameter(Mandatory=$true)]
+                  [string]$ProjectDir,
+                  [switch]$NukeDerivedDataCache
+                )
+
+                $ErrorActionPreference = "Stop"
+
+                function Zap($p) {
+                  if (Test-Path -LiteralPath $p) {
+                    Write-Host "Deleting: $p"
+                    Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue
+                  }
+                }
+
+                Get-Process UnrealEditor -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+
+                Zap (Join-Path $ProjectDir "Binaries")
+                Zap (Join-Path $ProjectDir "Intermediate")
+                Zap (Join-Path $ProjectDir "Saved")
+                if ($NukeDerivedDataCache) {
+                  Zap (Join-Path $ProjectDir "DerivedDataCache")
+                  $globalDDC = Join-Path $env:LOCALAPPDATA "UnrealEngine\\Common\\DerivedDataCache"
+                  Zap $globalDDC
+                }
+
+                Write-Host "Cleanup done."
+                ```
+
+                File: Tools/nh_copy_uassets.ps1
+                ```powershell
+                param(
+                  [Parameter(Mandatory=$true)]
+                  [string]$VaultPath,
+                  [Parameter(Mandatory=$true)]
+                  [string]$ProjectDir,
+                  [string]$DestSubdir = "PrisonCore"
+                )
+
+                $ErrorActionPreference = "Stop"
+
+                $dest = Join-Path $ProjectDir "Content\\$DestSubdir"
+                New-Item -ItemType Directory -Force -Path $dest | Out-Null
+
+                Write-Host "Copying .uasset/.umap into: $dest"
+                $items = Get-ChildItem -LiteralPath $VaultPath -Recurse -Force -File -ErrorAction SilentlyContinue |
+                  Where-Object { $_.Extension -in ".uasset",".umap" }
+
+                foreach ($it in $items) {
+                  $rel = $it.FullName.Substring($VaultPath.Length).TrimStart("\\","/")
+                  $target = Join-Path $dest $rel
+                  $targetDir = Split-Path -Parent $target
+                  New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
+                  Copy-Item -LiteralPath $it.FullName -Destination $target -Force
+                }
+
+                Write-Host ("Copied {0} assets." -f $items.Count)
+                ```
+
+                File: Tools/nh_build_safe.ps1
+                ```powershell
+                param(
+                  [Parameter(Mandatory=$true)]
+                  [string]$UProjectPath,
+                  [Parameter(Mandatory=$true)]
+                  [string]$UE57Root,
+                  [int]$MaxParallelActions = 6
+                )
+
+                $ErrorActionPreference = "Stop"
+
+                Get-Process UnrealEditor -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+
+                $buildBat = Join-Path $UE57Root "Engine\\Build\\BatchFiles\\Build.bat"
+                if (!(Test-Path $buildBat)) { throw "Build.bat not found at $buildBat" }
+
+                $projName = [IO.Path]::GetFileNameWithoutExtension($UProjectPath)
+                $target = "${projName}Editor"
+
+                Write-Host "Building $target with MaxParallelActions=$MaxParallelActions"
+                & $buildBat $target Win64 Development "-Project=$UProjectPath" -WaitMutex "-MaxParallelActions=$MaxParallelActions"
+                ```
+
+                File: Content/Python/vault_to_unreal.py
+                ```python
+                import os
+                import re
+                import unreal
+
+                VAULT_ROOT = r"C:\\Nyghtshade_Assets_Vault"
+                DEST_ROOT = "/Game/Nyghtshade/Final_Prison_Assets"
+                TEXTURES_DIR = f"{DEST_ROOT}/Textures"
+                MESHES_DIR = f"{DEST_ROOT}/Meshes"
+                MATS_DIR = f"{DEST_ROOT}/Materials"
+
+                CONCRETE_HINTS = ("concrete", "cement", "wall", "floor", "stone")
+                METAL_HINTS = ("metal", "steel", "iron", "pipe", "grate", "bar")
+
+
+                def log(msg):
+                    unreal.log(msg)
+
+
+                def ensure_dir(path):
+                    if not unreal.EditorAssetLibrary.does_directory_exist(path):
+                        unreal.EditorAssetLibrary.make_directory(path)
+
+
+                def find_files(root, exts):
+                    out = []
+                    for base, _, files in os.walk(root):
+                        for f in files:
+                            if os.path.splitext(f)[1].lower() in exts:
+                                out.append(os.path.join(base, f))
+                    return out
+
+
+                def safe_asset_name(s):
+                    s = re.sub(r"[^A-Za-z0-9_]+", "_", s)
+                    s = re.sub(r"_+", "_", s).strip("_")
+                    return s[:120] if len(s) > 120 else s
+
+
+                def import_file(src_path, dest_path, automated=True, replace=True):
+                    task = unreal.AssetImportTask()
+                    task.filename = src_path
+                    task.destination_path = dest_path
+                    task.automated = automated
+                    task.replace_existing = replace
+                    task.save = True
+                    unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks([task])
+                    return task.imported_object_paths
+
+
+                def make_master_material(name, dest_path):
+                    ensure_dir(dest_path)
+                    pkg = f"{dest_path}/{name}"
+                    if unreal.EditorAssetLibrary.does_asset_exist(pkg):
+                        return unreal.load_asset(pkg)
+
+                    mat = unreal.AssetToolsHelpers.get_asset_tools().create_asset(
+                        name, dest_path, unreal.Material, unreal.MaterialFactoryNew()
+                    )
+
+                    mel = unreal.MaterialEditingLibrary
+                    base_param = mel.create_material_expression(
+                        mat, unreal.MaterialExpressionTextureSampleParameter2D, -600, 0
+                    )
+                    base_param.parameter_name = "BaseColorTex"
+                    norm_param = mel.create_material_expression(
+                        mat, unreal.MaterialExpressionTextureSampleParameter2D, -600, 220
+                    )
+                    norm_param.parameter_name = "NormalTex"
+                    norm_param.sampler_type = unreal.MaterialSamplerType.SAMPLERTYPE_NORMAL
+
+                    mel.connect_material_property(base_param, "RGB", unreal.MaterialProperty.MP_BASE_COLOR)
+                    mel.connect_material_property(norm_param, "RGB", unreal.MaterialProperty.MP_NORMAL)
+                    mel.recompile_material(mat)
+                    unreal.EditorAssetLibrary.save_asset(pkg)
+                    return mat
+
+
+                def make_material_instance(mi_name, parent_mat, dest_path):
+                    ensure_dir(dest_path)
+                    pkg = f"{dest_path}/{mi_name}"
+                    if unreal.EditorAssetLibrary.does_asset_exist(pkg):
+                        return unreal.load_asset(pkg)
+
+                    mi = unreal.AssetToolsHelpers.get_asset_tools().create_asset(
+                        mi_name,
+                        dest_path,
+                        unreal.MaterialInstanceConstant,
+                        unreal.MaterialInstanceConstantFactoryNew(),
+                    )
+                    mi.set_editor_property("parent", parent_mat)
+                    unreal.EditorAssetLibrary.save_asset(pkg)
+                    return mi
+
+
+                def set_mi_texture(mi, param_name, tex_asset):
+                    unreal.MaterialEditingLibrary.set_material_instance_texture_parameter_value(
+                        mi, param_name, tex_asset
+                    )
+                    unreal.EditorAssetLibrary.save_loaded_asset(mi)
+
+
+                def choose_master_for_name(asset_name_lower):
+                    if any(h in asset_name_lower for h in METAL_HINTS):
+                        return "Master_Metal"
+                    if any(h in asset_name_lower for h in CONCRETE_HINTS):
+                        return "Master_Concrete"
+                    return "Master_Prison"
+
+
+                def guess_texture_role(filename_lower):
+                    if "normal" in filename_lower or filename_lower.endswith("_n.png") or "_n_" in filename_lower:
+                        return "NormalTex"
+                    return "BaseColorTex"
+
+
+                def assign_materials_to_mesh(mesh_asset, material_asset):
+                    if not isinstance(mesh_asset, unreal.StaticMesh):
+                        return
+                    slots = mesh_asset.get_editor_property("static_materials")
+                    for i in range(len(slots)):
+                        slots[i].material_interface = material_asset
+                    mesh_asset.set_editor_property("static_materials", slots)
+                    mesh_asset.mark_package_dirty()
+                    unreal.EditorAssetLibrary.save_loaded_asset(mesh_asset)
+
+
+                def run():
+                    ensure_dir(DEST_ROOT)
+                    ensure_dir(TEXTURES_DIR)
+                    ensure_dir(MESHES_DIR)
+                    ensure_dir(MATS_DIR)
+
+                    master_prison = make_master_material("Master_Prison_Material", MATS_DIR)
+                    master_conc = make_master_material("Master_Concrete", MATS_DIR)
+                    master_metal = make_master_material("Master_Metal", MATS_DIR)
+                    masters = {
+                        "Master_Prison": master_prison,
+                        "Master_Prison_Material": master_prison,
+                        "Master_Concrete": master_conc,
+                        "Master_Metal": master_metal,
+                    }
+
+                    fbx_files = find_files(VAULT_ROOT, {".fbx"})
+                    png_files = find_files(VAULT_ROOT, {".png"})
+                    log(f"Found FBX: {len(fbx_files)} | PNG: {len(png_files)}")
+
+                    texture_map = {}
+                    for p in png_files:
+                        imported = import_file(p, TEXTURES_DIR)
+                        for obj_path in imported:
+                            tex = unreal.load_asset(obj_path)
+                            key = (os.path.dirname(p).lower(), os.path.splitext(os.path.basename(p))[0].lower())
+                            texture_map[key] = tex
+
+                    for fbx in fbx_files:
+                        base_name = safe_asset_name(os.path.splitext(os.path.basename(fbx))[0])
+                        imported = import_file(fbx, MESHES_DIR)
+
+                        mesh = None
+                        for obj_path in imported:
+                            obj = unreal.load_asset(obj_path)
+                            if isinstance(obj, unreal.StaticMesh):
+                                mesh = obj
+                                break
+                        if not mesh:
+                            log(f"Skipping (no StaticMesh found): {fbx}")
+                            continue
+
+                        master_key = choose_master_for_name(base_name.lower())
+                        parent = masters.get(master_key, master_prison)
+                        mi = make_material_instance(f"MI_{base_name}", parent, MATS_DIR)
+
+                        folder = os.path.dirname(fbx).lower()
+                        candidates = []
+                        for (fld, bn), tex in texture_map.items():
+                            if fld == folder and (bn.startswith(base_name.lower()) or base_name.lower() in bn):
+                                candidates.append((bn, tex))
+
+                        for bn, tex in candidates:
+                            role = guess_texture_role(bn)
+                            set_mi_texture(mi, role, tex)
+
+                        assign_materials_to_mesh(mesh, mi)
+
+                    asset_tools = unreal.AssetToolsHelpers.get_asset_tools()
+                    redir_objs = []
+                    for a in unreal.EditorAssetLibrary.list_assets(DEST_ROOT, recursive=True, include_folder=False):
+                        obj = unreal.load_asset(a)
+                        if isinstance(obj, unreal.ObjectRedirector):
+                            redir_objs.append(obj)
+                    if redir_objs:
+                        asset_tools.fixup_redirectors(redir_objs)
+
+                    log("Vault import + material assignment + redirector fixup complete.")
+
+
+                if __name__ == "__main__":
+                    run()
+                ```
+
+                File: README_ForemanPack.md
+                ```markdown
+                # Foreman Pack (Windows + UE 5.7)
+
+                ## 1) Audit workspace for Nyghtshade project
+                ```powershell
+                pwsh -File Tools/nh_foreman_audit.ps1 -WorkspaceRoot "C:\\Users\\FRANK\\Desktop\\ltvall\\shiny-happiness"
+                ```
+
+                ## 2) Clean project artifacts
+                ```powershell
+                pwsh -File Tools/nh_clean_project.ps1 -ProjectDir "C:\\Path\\To\\NyghtshadeProject" -NukeDerivedDataCache
+                ```
+
+                ## 3) Copy Vault assets into the project
+                ```powershell
+                pwsh -File Tools/nh_copy_uassets.ps1 -VaultPath "C:\\Nyghtshade_Assets_Vault" -ProjectDir "C:\\Path\\To\\NyghtshadeProject" -DestSubdir "PrisonCore"
+                ```
+
+                ## 4) Run the Unreal Python import
+                - Copy `Content/Python/vault_to_unreal.py` into your project.
+                - Launch the project once, then execute the script in Unreal:
+                ```python
+                import vault_to_unreal
+                vault_to_unreal.run()
+                ```
+
+                ## 5) Build safely with capped parallel actions
+                ```powershell
+                pwsh -File Tools/nh_build_safe.ps1 -UProjectPath "C:\\Path\\To\\NyghtshadeProject\\Nyghtshade.uproject" -UE57Root "C:\\Program Files\\Epic Games\\UE_5.7" -MaxParallelActions 6
+                ```
+                ```
+                """
+            ).strip(),
+        ),
     ]
 
 
