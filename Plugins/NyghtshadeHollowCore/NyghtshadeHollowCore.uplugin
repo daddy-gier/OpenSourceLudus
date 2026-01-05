@@ -1,0 +1,23 @@
+{
+  "FileVersion": 3,
+  "Version": 1,
+  "VersionName": "1.0.0",
+  "FriendlyName": "Nyghtshade Hollow Core",
+  "Description": "Runtime systems for Nyghtshade Hollow.",
+  "Category": "Gameplay",
+  "CreatedBy": "OpenSourceLudus",
+  "CreatedByURL": "https://example.com",
+  "DocsURL": "",
+  "MarketplaceURL": "",
+  "SupportURL": "",
+  "CanContainContent": true,
+  "IsBetaVersion": false,
+  "IsExperimentalVersion": false,
+  "Modules": [
+    {
+      "Name": "NyghtshadeHollowCore",
+      "Type": "Runtime",
+      "LoadingPhase": "Default"
+    }
+  ]
+}

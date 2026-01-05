@@ -1,0 +1,28 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "UE5.7: Build Project",
+      "type": "shell",
+      "command": "${env:UE57_ROOT}\\Engine\\Build\\BatchFiles\\Build.bat",
+      "args": [
+        "${workspaceFolderBasename}Editor",
+        "Win64",
+        "Development",
+        "-project=\"${workspaceFolder}\\${workspaceFolderBasename}.uproject\"",
+        "-waitmutex"
+      ],
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "UE5.7: Generate Project Files",
+      "type": "shell",
+      "command": "${env:UE57_ROOT}\\Engine\\Build\\BatchFiles\\GenerateProjectFiles.bat",
+      "args": [
+        "-project=\"${workspaceFolder}\\${workspaceFolderBasename}.uproject\"",
+        "-game",
+        "-engine"
+      ]
+    }
+  ]
+}

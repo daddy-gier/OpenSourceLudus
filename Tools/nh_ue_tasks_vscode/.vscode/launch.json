@@ -1,0 +1,13 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "UE5.7: Launch Editor",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${env:UE57_ROOT}\\Engine\\Binaries\\Win64\\UnrealEditor.exe",
+      "args": ["${workspaceFolder}\\${workspaceFolderBasename}.uproject"],
+      "cwd": "${workspaceFolder}"
+    }
+  ]
+}
