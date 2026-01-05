@@ -321,6 +321,129 @@ def unreal_task_templates() -> List[TaskTemplate]:
                 """
             ).strip(),
         ),
+        TaskTemplate(
+            name="prison-asset-importer",
+            engine="unreal",
+            summary="Python-driven Unreal asset import for FBX/UAsset batches.",
+            checklist=[
+                "Scan a vault directory for .fbx and .uasset files.",
+                "Import FBX meshes into /Game/Nyghtshade/PrisonCore.",
+                "Log successful imports to a manifest.",
+                "Skip assets that already exist in the destination.",
+            ],
+            copilot_prompt=UNREAL_PROMPT
+            + "\n\nTask: Build an Unreal Python script that imports prison assets and logs a manifest.",
+            code_skeleton=dedent(
+                """
+                # Unreal Engine Python script: prison_import_manifest.py
+                import os
+                from pathlib import Path
+
+                import unreal
+
+                VAULT_ROOT = Path(r"C:\\Nyghtshade_Assets_Vault")
+                DEST_ROOT = "/Game/Nyghtshade/PrisonCore"
+                MANIFEST_PATH = Path("IMPORT_SUCCESS.log")
+
+
+                def find_assets(root: Path) -> list[Path]:
+                    assets = []
+                    for dirpath, _, filenames in os.walk(root):
+                        for filename in filenames:
+                            if filename.lower().endswith((".fbx", ".uasset")):
+                                assets.append(Path(dirpath) / filename)
+                    return assets
+
+
+                def asset_destination(asset_path: Path) -> str:
+                    return f"{DEST_ROOT}/{asset_path.stem}"
+
+
+                def import_fbx(asset_path: Path, destination: str) -> bool:
+                    task = unreal.AssetImportTask()
+                    task.filename = str(asset_path)
+                    task.destination_path = DEST_ROOT
+                    task.destination_name = asset_path.stem
+                    task.replace_existing = False
+                    task.automated = True
+                    task.save = True
+
+                    unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks([task])
+                    return len(task.imported_object_paths) > 0
+
+
+                def import_uasset(asset_path: Path, destination: str) -> bool:
+                    target_path = f"{DEST_ROOT}/{asset_path.name}"
+                    if unreal.EditorAssetLibrary.does_asset_exist(target_path):
+                        return False
+                    return unreal.EditorAssetLibrary.import_asset(
+                        str(asset_path), DEST_ROOT
+                    )
+
+
+                def run():
+                    imported = []
+                    for asset in find_assets(VAULT_ROOT):
+                        dest = asset_destination(asset)
+                        if unreal.EditorAssetLibrary.does_asset_exist(dest):
+                            continue
+                        if asset.suffix.lower() == ".fbx":
+                            success = import_fbx(asset, dest)
+                        else:
+                            success = import_uasset(asset, dest)
+                        if success:
+                            imported.append(dest)
+
+                    MANIFEST_PATH.write_text(
+                        "\\n".join(imported),
+                        encoding="utf-8",
+                    )
+
+
+                if __name__ == "__main__":
+                    run()
+                """
+            ).strip(),
+        ),
+        TaskTemplate(
+            name="judicial-system-db-link",
+            engine="unreal",
+            summary="SQLite-backed judicial system persistence layer.",
+            checklist=[
+                "Add a SQLite database file path in config.",
+                "Open the database on subsystem initialization.",
+                "Write court event records for violations.",
+                "Expose query helpers for UI widgets.",
+            ],
+            copilot_prompt=UNREAL_PROMPT
+            + "\n\nTask: Implement a SQLite-backed judicial system persistence layer.",
+            code_skeleton=dedent(
+                """
+                #pragma once
+
+                #include "CoreMinimal.h"
+                #include "Subsystems/GameInstanceSubsystem.h"
+                #include "JudicialDatabaseSubsystem.generated.h"
+
+                UCLASS()
+                class UJudicialDatabaseSubsystem : public UGameInstanceSubsystem
+                {
+                    GENERATED_BODY()
+
+                public:
+                    virtual void Initialize(FSubsystemCollectionBase& Collection) override;
+                    virtual void Deinitialize() override;
+
+                    UFUNCTION(BlueprintCallable, Category = "Judicial")
+                    bool RecordViolation(const FString& InmateId, int32 Severity, const FString& Notes);
+
+                private:
+                    FString DatabasePath;
+                    void* SqliteHandle = nullptr;
+                };
+                """
+            ).strip(),
+        ),
     ]
 
 
