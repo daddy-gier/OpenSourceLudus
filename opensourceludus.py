@@ -40,6 +40,7 @@ class TaskTemplate:
     checklist: List[str]
     copilot_prompt: str
     code_skeleton: str
+    code_files: Dict[str, str]
 
 
 UNITY_PROMPT = dedent(
@@ -154,6 +155,67 @@ def unity_task_templates() -> List[TaskTemplate]:
                 }
                 """
             ).strip(),
+            code_files={
+                "PlayerMovement.cs": dedent(
+                    """
+                    using UnityEngine;
+
+                    [RequireComponent(typeof(CharacterController))]
+                    public class PlayerMovement : MonoBehaviour
+                    {
+                        [Header("Movement")]
+                        [SerializeField] private float moveSpeed = 5f;
+                        [SerializeField] private float jumpHeight = 1.5f;
+                        [SerializeField] private float gravity = -9.81f;
+                        [SerializeField] private Transform cameraTransform;
+
+                        private CharacterController controller;
+                        private Vector3 velocity;
+
+                        private void Awake()
+                        {
+                            controller = GetComponent<CharacterController>();
+                        }
+
+                        private void Update()
+                        {
+                            if (cameraTransform == null)
+                            {
+                                Debug.LogWarning("PlayerMovement: Missing cameraTransform reference.");
+                                return;
+                            }
+
+                            bool isGrounded = controller.isGrounded;
+                            if (isGrounded && velocity.y < 0f)
+                            {
+                                velocity.y = -2f; // keep grounded
+                            }
+
+                            float horizontal = Input.GetAxis("Horizontal");
+                            float vertical = Input.GetAxis("Vertical");
+
+                            Vector3 cameraForward = cameraTransform.forward;
+                            cameraForward.y = 0f;
+                            cameraForward.Normalize();
+                            Vector3 cameraRight = cameraTransform.right;
+                            cameraRight.y = 0f;
+                            cameraRight.Normalize();
+
+                            Vector3 move = (cameraForward * vertical + cameraRight * horizontal).normalized;
+                            controller.Move(move * moveSpeed * Time.deltaTime);
+
+                            if (Input.GetButtonDown("Jump") && isGrounded)
+                            {
+                                velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
+                            }
+
+                            velocity.y += gravity * Time.deltaTime;
+                            controller.Move(velocity * Time.deltaTime);
+                        }
+                    }
+                    """
+                ).strip()
+            },
         ),
         TaskTemplate(
             name="interaction-raycast",
@@ -215,6 +277,56 @@ def unity_task_templates() -> List[TaskTemplate]:
                 }
                 """
             ).strip(),
+            code_files={
+                "InteractionRaycast.cs": dedent(
+                    """
+                    using UnityEngine;
+                    using UnityEngine.UI;
+
+                    public interface IInteractable
+                    {
+                        string Prompt { get; }
+                        void Interact();
+                    }
+
+                    public class InteractionRaycast : MonoBehaviour
+                    {
+                        [SerializeField] private Camera playerCamera;
+                        [SerializeField] private float interactRange = 3f;
+                        [SerializeField] private Text promptText;
+
+                        private IInteractable currentTarget;
+
+                        private void Update()
+                        {
+                            if (playerCamera == null || promptText == null)
+                            {
+                                return;
+                            }
+
+                            currentTarget = null;
+                            promptText.enabled = false;
+
+                            Ray ray = new Ray(playerCamera.transform.position, playerCamera.transform.forward);
+                            if (Physics.Raycast(ray, out RaycastHit hit, interactRange))
+                            {
+                                if (hit.collider.TryGetComponent(out IInteractable interactable))
+                                {
+                                    currentTarget = interactable;
+                                    promptText.text = interactable.Prompt;
+                                    promptText.enabled = true;
+                                }
+                            }
+
+                            if (currentTarget != null && Input.GetButtonDown("Fire1"))
+                            {
+                                currentTarget.Interact();
+                            }
+                        }
+                    }
+                    """
+                ).strip()
+            },
         ),
     ]
 
@@ -266,6 +378,121 @@ def unreal_task_templates() -> List[TaskTemplate]:
                 };
                 """
             ).strip(),
+            code_files={
+                "ThirdPersonHero.h": dedent(
+                    """
+                    #pragma once
+
+                    #include "CoreMinimal.h"
+                    #include "GameFramework/Character.h"
+                    #include "ThirdPersonHero.generated.h"
+
+                    UCLASS()
+                    class AThirdPersonHero : public ACharacter
+                    {
+                        GENERATED_BODY()
+
+                    public:
+                        AThirdPersonHero();
+
+                    protected:
+                        virtual void BeginPlay() override;
+                        virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
+
+                        UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera")
+                        class USpringArmComponent* CameraBoom;
+
+                        UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera")
+                        class UCameraComponent* FollowCamera;
+
+                        void MoveForward(float Value);
+                        void MoveRight(float Value);
+                        void Turn(float Value);
+                        void LookUp(float Value);
+                    };
+                    """
+                ).strip(),
+                "ThirdPersonHero.cpp": dedent(
+                    """
+                    #include "ThirdPersonHero.h"
+
+                    #include "Camera/CameraComponent.h"
+                    #include "Components/InputComponent.h"
+                    #include "GameFramework/CharacterMovementComponent.h"
+                    #include "GameFramework/Controller.h"
+                    #include "GameFramework/SpringArmComponent.h"
+
+                    AThirdPersonHero::AThirdPersonHero()
+                    {
+                        PrimaryActorTick.bCanEverTick = true;
+
+                        CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
+                        CameraBoom->SetupAttachment(RootComponent);
+                        CameraBoom->TargetArmLength = 300.0f;
+                        CameraBoom->bUsePawnControlRotation = true;
+
+                        FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
+                        FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
+                        FollowCamera->bUsePawnControlRotation = false;
+
+                        bUseControllerRotationYaw = false;
+                        GetCharacterMovement()->bOrientRotationToMovement = true;
+                        GetCharacterMovement()->RotationRate = FRotator(0.0f, 540.0f, 0.0f);
+                    }
+
+                    void AThirdPersonHero::BeginPlay()
+                    {
+                        Super::BeginPlay();
+                    }
+
+                    void AThirdPersonHero::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
+                    {
+                        Super::SetupPlayerInputComponent(PlayerInputComponent);
+
+                        PlayerInputComponent->BindAxis("MoveForward", this, &AThirdPersonHero::MoveForward);
+                        PlayerInputComponent->BindAxis("MoveRight", this, &AThirdPersonHero::MoveRight);
+                        PlayerInputComponent->BindAxis("Turn", this, &AThirdPersonHero::Turn);
+                        PlayerInputComponent->BindAxis("LookUp", this, &AThirdPersonHero::LookUp);
+                        PlayerInputComponent->BindAction("Jump", IE_Pressed, this, &ACharacter::Jump);
+                        PlayerInputComponent->BindAction("Jump", IE_Released, this, &ACharacter::StopJumping);
+                    }
+
+                    void AThirdPersonHero::MoveForward(float Value)
+                    {
+                        if (!Controller || FMath::IsNearlyZero(Value))
+                        {
+                            return;
+                        }
+
+                        const FRotator YawRotation(0.0f, Controller->GetControlRotation().Yaw, 0.0f);
+                        const FVector Direction = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
+                        AddMovementInput(Direction, Value);
+                    }
+
+                    void AThirdPersonHero::MoveRight(float Value)
+                    {
+                        if (!Controller || FMath::IsNearlyZero(Value))
+                        {
+                            return;
+                        }
+
+                        const FRotator YawRotation(0.0f, Controller->GetControlRotation().Yaw, 0.0f);
+                        const FVector Direction = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
+                        AddMovementInput(Direction, Value);
+                    }
+
+                    void AThirdPersonHero::Turn(float Value)
+                    {
+                        AddControllerYawInput(Value);
+                    }
+
+                    void AThirdPersonHero::LookUp(float Value)
+                    {
+                        AddControllerPitchInput(Value);
+                    }
+                    """
+                ).strip(),
+            },
         ),
         TaskTemplate(
             name="interaction-component",
@@ -320,6 +547,110 @@ def unreal_task_templates() -> List[TaskTemplate]:
                 };
                 """
             ).strip(),
+            code_files={
+                "InteractionComponent.h": dedent(
+                    """
+                    #pragma once
+
+                    #include "CoreMinimal.h"
+                    #include "Components/ActorComponent.h"
+                    #include "InteractionComponent.generated.h"
+
+                    UINTERFACE(BlueprintType)
+                    class UInteractableInterface : public UInterface
+                    {
+                        GENERATED_BODY()
+                    };
+
+                    class IInteractableInterface
+                    {
+                        GENERATED_BODY()
+
+                    public:
+                        UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Interaction")
+                        void Interact(AActor* InstigatorActor);
+                    };
+
+                    UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent))
+                    class UInteractionComponent : public UActorComponent
+                    {
+                        GENERATED_BODY()
+
+                    public:
+                        UInteractionComponent();
+
+                        UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interaction")
+                        float TraceDistance = 250.f;
+
+                        UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interaction")
+                        bool bDebugTrace = false;
+
+                        UFUNCTION(BlueprintCallable, Category = "Interaction")
+                        void TryInteract();
+                    };
+                    """
+                ).strip(),
+                "InteractionComponent.cpp": dedent(
+                    """
+                    #include "InteractionComponent.h"
+
+                    #include "DrawDebugHelpers.h"
+                    #include "GameFramework/Actor.h"
+                    #include "GameFramework/PlayerController.h"
+                    #include "Kismet/GameplayStatics.h"
+
+                    UInteractionComponent::UInteractionComponent()
+                    {
+                        PrimaryComponentTick.bCanEverTick = false;
+                    }
+
+                    void UInteractionComponent::TryInteract()
+                    {
+                        AActor* Owner = GetOwner();
+                        if (!Owner)
+                        {
+                            return;
+                        }
+
+                        FVector ViewLocation;
+                        FRotator ViewRotation;
+                        APlayerController* PlayerController = UGameplayStatics::GetPlayerController(this, 0);
+                        if (!PlayerController)
+                        {
+                            return;
+                        }
+
+                        PlayerController->GetPlayerViewPoint(ViewLocation, ViewRotation);
+                        FVector TraceEnd = ViewLocation + (ViewRotation.Vector() * TraceDistance);
+
+                        FHitResult Hit;
+                        FCollisionQueryParams Params(SCENE_QUERY_STAT(InteractionTrace), false, Owner);
+                        bool bHit = GetWorld()->LineTraceSingleByChannel(
+                            Hit,
+                            ViewLocation,
+                            TraceEnd,
+                            ECC_Visibility,
+                            Params
+                        );
+
+                        if (bDebugTrace)
+                        {
+                            const FColor LineColor = bHit ? FColor::Green : FColor::Red;
+                            DrawDebugLine(GetWorld(), ViewLocation, TraceEnd, LineColor, false, 1.0f, 0, 1.5f);
+                            if (bHit)
+                            {
+                                DrawDebugSphere(GetWorld(), Hit.ImpactPoint, 8.0f, 8, LineColor, false, 1.0f);
+                            }
+                        }
+
+                        if (bHit && Hit.GetActor() && Hit.GetActor()->GetClass()->ImplementsInterface(UInteractableInterface::StaticClass()))
+                        {
+                            IInteractableInterface::Execute_Interact(Hit.GetActor(), Owner);
+                        }
+                    }
+                    """
+                ).strip(),
+            },
         ),
     ]
 
@@ -339,6 +670,7 @@ def filter_templates(engine: str | None, name: str | None) -> List[TaskTemplate]
 
 def format_template(template: TaskTemplate) -> str:
     checklist = "\n".join(f"- {item}" for item in template.checklist)
+    code_files = format_code_files(template.code_files)
     return dedent(
         f"""
         Name: {template.name}
@@ -353,6 +685,9 @@ def format_template(template: TaskTemplate) -> str:
 
         Code Skeleton:
         {template.code_skeleton}
+
+        Code Files:
+        {code_files}
         """
     ).strip()
 
@@ -362,6 +697,12 @@ def write_output(content: str, output_path: str | None) -> None:
         Path(output_path).write_text(content, encoding="utf-8")
         return
     print(content)
+
+
+def format_code_files(code_files: Dict[str, str]) -> str:
+    return "\n\n".join(
+        f"--- {path} ---\n{contents}" for path, contents in code_files.items()
+    )
 
 
 def build_templates_parser() -> argparse.ArgumentParser:
@@ -396,6 +737,21 @@ def build_templates_parser() -> argparse.ArgumentParser:
         "--all-in-one",
         action="store_true",
         help="Emit all templates concatenated into a single file.",
+    )
+    parser.add_argument(
+        "--write-files",
+        action="store_true",
+        help="Write code files for each matching template.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        default=".",
+        help="Directory to write code files (default: current directory).",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite existing files when writing code files.",
     )
     return parser
 
@@ -1020,6 +1376,12 @@ def run_templates_cli(args: Iterable[str] | None) -> int:
     if not templates:
         parser.error("No templates matched the provided filters.")
 
+    if args.write_files:
+        write_code_files(templates, Path(args.output_dir), args.force)
+        if not args.list and args.format != "json":
+            print(f"Wrote code files to {Path(args.output_dir).resolve()}")
+        return 0
+
     if args.list:
         listing = "\n".join(
             f"{template.engine}:{template.name} - {template.summary}" for template in templates
@@ -1040,6 +1402,17 @@ def run_templates_cli(args: Iterable[str] | None) -> int:
     content = format_template(templates[0])
     write_output(content, args.output)
     return 0
+
+
+def write_code_files(templates: List[TaskTemplate], output_dir: Path, force: bool) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    for template in templates:
+        for relative_path, contents in template.code_files.items():
+            target_path = output_dir / relative_path
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            if target_path.exists() and not force:
+                raise MirrorError(f"Refusing to overwrite existing file: {target_path}")
+            target_path.write_text(contents + "\n", encoding="utf-8")
 
 
 def build_registry_parser() -> argparse.ArgumentParser:
