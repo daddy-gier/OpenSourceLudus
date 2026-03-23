@@ -1,0 +1,134 @@
+name: Unreal Full CI Matrix
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+      - 'ai/**'
+  pull_request:
+    branches:
+      - main
+      - dev
+      - 'ai/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  PROJECT: "YourProject/YourProject.uproject"
+
+jobs:
+  # ------------------------
+  # ENGINE MATRIX BUILD JOBS
+  # ------------------------
+  build:
+    name: Build (${{ matrix.engine }} | ${{ matrix.platform }})
+    runs-on: [self-hosted, unreal-self-hosted]
+    timeout-minutes: 360
+
+    strategy:
+      matrix:
+        engine: [UE_5_0, UE_5_1, UE_5_2, UE_5_3]
+        platform: [Win64, Linux]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Detect Engine Install
+        run: |
+          echo "ENGINE=${{ matrix.engine }}"
+          echo "PLATFORM=${{ matrix.platform }}"
+          echo "RUNUAT=${{ secrets['RUNUAT_' + matrix.engine] }}"
+
+      - name: Build Development
+        run: |
+          "${{ secrets['RUNUAT_' + matrix.engine] }}" BuildCookRun \
+            -project="${{ env.PROJECT }}" \
+            -platform=${{ matrix.platform }} \
+            -clientconfig=Development \
+            -serverconfig=Development \
+            -cook -allmaps -build -stage -pak \
+            -archive -archivedirectory=Saved/Builds/${{ matrix.engine }}/${{ matrix.platform }}/Dev
+
+      - name: Build Shipping
+        run: |
+          "${{ secrets['RUNUAT_' + matrix.engine] }}" BuildCookRun \
+            -project="${{ env.PROJECT }}" \
+            -platform=${{ matrix.platform }} \
+            -clientconfig=Shipping \
+            -serverconfig=Shipping \
+            -cook -allmaps -build -stage -pak \
+            -archive -archivedirectory=Saved/Builds/${{ matrix.engine }}/${{ matrix.platform }}/Shipping
+
+      - name: Upload build artifact (if created)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unreal-artifacts-${{ matrix.engine }}-${{ matrix.platform }}
+          path: Saved/Artifacts/**
+          if-no-files-found: ignore
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Build-${{ matrix.engine }}-${{ matrix.platform }}
+          path: Saved/Builds/${{ matrix.engine }}/${{ matrix.platform }}/
+
+  # ------------------------
+  # AUTOMATION TEST JOB
+  # ------------------------
+  tests:
+    name: Automation Tests
+    needs: build
+    runs-on: [self-hosted, unreal-self-hosted]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Automation Tests
+        run: |
+          "${{ secrets.RUNUAT_UE_5_3 }}" \
+            RunUAT \
+            -ScriptsForProject="${{ env.PROJECT }}" \
+            -run=Automation -Test=Smoke -Platform=Win64
+
+  # ------------------------
+  # OPTIONAL PIE SMOKE TESTS
+  # ------------------------
+  smoke-tests:
+    name: Smoke tests (Editor Play-In-Editor)
+    needs: build
+    runs-on: [self-hosted, unreal-self-hosted]
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run a lightweight automated PIE test (optional)
+        run: |
+          echo "Running simple editor test..."
+          # Example: use RunUAT to run a packaged test or a headless automation test.
+          # Replace with your project's test harness. If unavailable, consider skipping.
+          if [ -z "$RUNUAT_PATH" ]; then
+            echo "No RUNUAT_PATH defined, skipping PIE tests."
+          else
+            "$RUNUAT_PATH" RunUAT -ScriptsForProject="${{ env.PROJECT }}" -run=Automation -Test=Smoke -Platform=Win64
+          fi
+        env:
+          RUNUAT_PATH: ${{ secrets.RUNUAT_PATH }}
+
+  # ------------------------
+  # STATUS JOB TO ENFORCE AI BRANCHES
+  # ------------------------
+  ai-branch-guard:
+    name: AI Branch Governance
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "Ensure branch protection rules require HUMAN review for ai/* PRs."
+          echo "This job reports a status so your rules can block auto-merges."

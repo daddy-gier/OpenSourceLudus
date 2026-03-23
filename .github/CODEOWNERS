@@ -1,0 +1,5 @@
+# Human approval required for all AI-generated branches
+ai/* @nyghtshade @RepoOwnerUsernameHere
+
+# Optional: require reviewers for entire project
+* @nyghtshade
