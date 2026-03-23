@@ -222,6 +222,97 @@ def unity_task_templates() -> List[TaskTemplate]:
 def unreal_task_templates() -> List[TaskTemplate]:
     return [
         TaskTemplate(
+            name="time-manager",
+            engine="unreal",
+            summary="GameState-based time manager with tick-driven time advancement and minute events.",
+            checklist=[
+                "Create a GameStateBase subclass with hour/minute tracking.",
+                "Expose time scale and current time via BlueprintReadOnly properties.",
+                "Advance time in Tick with a minute accumulator.",
+                "Broadcast a delegate on minute changes for AI/UI listeners.",
+            ],
+            copilot_prompt=UNREAL_PROMPT
+            + "\n\nTask: Implement a GameState time manager with minute updates.",
+            code_skeleton=dedent(
+                """
+                #pragma once
+
+                #include "CoreMinimal.h"
+                #include "GameFramework/GameStateBase.h"
+                #include "NH_GameState.generated.h"
+
+                DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
+                    FOnMinuteChanged,
+                    int32,
+                    NewHour,
+                    int32,
+                    NewMinute
+                );
+
+                UCLASS()
+                class ANH_GameState : public AGameStateBase
+                {
+                    GENERATED_BODY()
+
+                public:
+                    ANH_GameState();
+
+                    virtual void Tick(float DeltaTime) override;
+
+                    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Time")
+                    int32 CurrentHour;
+
+                    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Time")
+                    int32 CurrentMinute;
+
+                    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Time", meta = (ClampMin = "0.1"))
+                    float TimeScale;
+
+                    UPROPERTY(BlueprintAssignable, Category = "Time")
+                    FOnMinuteChanged OnMinuteChanged;
+
+                protected:
+                    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Time")
+                    float MinuteAccumulator;
+                };
+
+                // === .cpp ===
+                #include "NH_GameState.h"
+
+                ANH_GameState::ANH_GameState()
+                {
+                    PrimaryActorTick.bCanEverTick = true;
+
+                    CurrentHour = 6;
+                    CurrentMinute = 0;
+                    TimeScale = 60.0f; // 1 real second = 1 in-game minute
+                    MinuteAccumulator = 0.0f;
+                }
+
+                void ANH_GameState::Tick(float DeltaTime)
+                {
+                    Super::Tick(DeltaTime);
+
+                    MinuteAccumulator += DeltaTime * TimeScale;
+
+                    while (MinuteAccumulator >= 60.0f)
+                    {
+                        MinuteAccumulator -= 60.0f;
+                        CurrentMinute++;
+
+                        if (CurrentMinute >= 60)
+                        {
+                            CurrentMinute = 0;
+                            CurrentHour = (CurrentHour + 1) % 24;
+                        }
+
+                        OnMinuteChanged.Broadcast(CurrentHour, CurrentMinute);
+                    }
+                }
+                """
+            ).strip(),
+        ),
+        TaskTemplate(
             name="third-person-character",
             engine="unreal",
             summary="C++ third-person character with camera boom and movement bindings.",
