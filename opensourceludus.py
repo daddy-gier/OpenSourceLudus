@@ -328,12 +328,26 @@ def all_templates() -> List[TaskTemplate]:
     return unity_task_templates() + unreal_task_templates()
 
 
+def normalize_filter(text: str) -> str:
+    return "".join(char for char in text.lower().strip() if char.isalnum())
+
+
 def filter_templates(engine: str | None, name: str | None) -> List[TaskTemplate]:
     templates = all_templates()
     if engine:
-        templates = [template for template in templates if template.engine == engine]
+        normalized_engine = engine.strip().lower()
+        templates = [
+            template
+            for template in templates
+            if template.engine.lower() == normalized_engine
+        ]
     if name:
-        templates = [template for template in templates if template.name == name]
+        normalized_name = normalize_filter(name)
+        templates = [
+            template
+            for template in templates
+            if normalized_name in normalize_filter(template.name)
+        ]
     return templates
 
 
