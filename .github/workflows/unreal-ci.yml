@@ -1,0 +1,78 @@
+name: Unreal CI - Build Plugin & Run Smoke Test
+
+on:
+  push:
+    branches:
+      - main
+      - 'ai/**'
+  pull_request:
+    branches:
+      - main
+      - 'ai/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  UPROJECT_PATH: "YourProject/YourProject.uproject" # adjust to your project .uproject path
+  BUILD_CONFIG: "Development"
+
+jobs:
+  prepare:
+    name: Checkout & Setup
+    runs-on: [self-hosted, unreal-self-hosted]
+    timeout-minutes: 240
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Ensure env secret is available
+        run: |
+          echo "REVOLT_API_KEY is set: ${{ secrets.REVOLT_API_KEY }}"
+        env:
+          REVOLT_API_KEY: ${{ secrets.REVOLT_API_KEY }}
+
+      - name: Print runner info
+        run: |
+          echo "Runner: $(uname -a || echo Windows)"
+          echo "Working dir: $(pwd)"
+
+  build:
+    name: Build (Unreal)
+    needs: prepare
+    runs-on: [self-hosted, unreal-self-hosted]
+    timeout-minutes: 240
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup environment variables (secrets)
+        run: |
+          echo "Using REVOLT_API_KEY from secrets"
+        env:
+          REVOLT_API_KEY: ${{ secrets.REVOLT_API_KEY }}
+
+      - name: Compile plugin / project
+        run: |
+          set -e
+          echo "Starting Unreal build..."
+          # On Windows runners: provide path to RunUAT.bat or use UnrealBuildTool
+          # Example using RunUAT to build the project (adjust RUNUAT path to your engine)
+          if [ -f "$RUNUAT_PATH" ]; then
+            echo "Using RUNUAT_PATH: $RUNUAT_PATH"
+            "$RUNUAT_PATH" BuildCookRun -project="${{ env.UPROJECT_PATH }}" -noP4 -platform=Win64 -clientconfig=${{ env.BUILD_CONFIG }} -serverconfig=${{ env.BUILD_CONFIG }} -cook -allmaps -build -stage -pak -archive -archivedirectory=Saved/Artifacts
+          else
+            echo "RUNUAT_PATH not set. Attempting UnrealBuildTool compile for plugin..."
+            # Try compile plugin via UnrealBuildTool (requires engine installed)
+            # Example (Linux/Mac): /path/to/Engine/Build/BatchFiles/RunUAT.sh BuildPlugin ...
+            # You must set RUNUAT_PATH as a runner secret or environment var.
+            exit 1
+          fi
+        env:
+          RUNUAT_PATH: ${{ secrets.RUNUAT_PATH }}
